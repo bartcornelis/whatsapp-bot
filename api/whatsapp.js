@@ -11,13 +11,17 @@ const genAI = new GoogleGenAI({});
 // ---------- AI INTENT ----------
 async function parseIntent(message) {
   const prompt = `
-Je bent een voetbal assistent.
+Je bent een slimme voetbal team assistent.
 
-Geef JSON terug:
+Analyseer het bericht en geef JSON:
+
 {
   "intent": "...",
-  "player_name": "...",
-  "date": "..."
+  "confidence": 0-1,
+  "data": {
+    "goals": number,
+    "assists": number
+  }
 }
 
 Mogelijke intents:
@@ -25,9 +29,17 @@ Mogelijke intents:
 - last_game
 - attendance_confirm
 - attendance_decline
+- attendance_list
 - top_scorer
 - player_stats
-- attendance_list
+- add_stats
+
+Voorbeelden:
+"ik kom" → attendance_confirm
+"ik kan niet" → attendance_decline
+"wie speelt mee" → attendance_list
+"ik scoorde 2 goals" → add_stats + goals:2
+"ik gaf 1 assist" → add_stats + assists:1
 
 Message: "${message}"
 `;
@@ -38,16 +50,14 @@ Message: "${message}"
       contents: prompt,
     });
 
-    const text = res.text;
-
-    if (!text) return { intent: "unknown" };
+    const text = res.text || "";
 
     const clean = text.replace(/^```json\n?|```$/g, "").trim();
 
     return JSON.parse(clean);
   } catch (err) {
     console.error("AI ERROR:", err);
-    return { intent: "unknown" };
+    return { intent: "unknown", confidence: 0 };
   }
 }
 
@@ -105,16 +115,51 @@ export default async function handler(req, res) {
 
     const message = body?.Body;
     const phone = body?.From?.replace("whatsapp:", "");
+	
+	const isReplyToBot = body.Context?.From === process.env.TWILIO_NUMBER;
 
     console.log("Incoming:", message, phone);
 
     if (!message) {
       return res.status(400).send("No message");
     }
+	
+	const isMentioned =
+		message.toLowerCase().includes("bot") ||
+		message.toLowerCase().includes("coach");
+		
+	const triggerWords = [
+		"match",
+		"wedstrijd",
+		"aanwezig",
+		"kom",
+		"wie speelt",
+		"topscorer",
+		"score",
+	];
+
+	const isRelevant = triggerWords.some(word =>
+		message.toLowerCase().includes(word)
+	);
+
+	// 👉 STOP HIER als geen mention
+	if (!isMentioned && !triggerWords) {
+		return res.status(200).send(""); // geen reply
+	}
 
     let reply = "🤔 Ik begrijp je niet.";
 
-    const { intent, player_name } = await parseIntent(message);
+    const { intent, data } = await parseIntent(message);
+
+	// speler ophalen
+	const player = await getPlayerByPhone(phone);
+
+	// fallback
+	if (!intent || intent === "unknown") {
+		return res.send(`
+			<Response><Message>🤔 Ik begrijp je niet helemaal.</Message></Response>
+		`);
+	}
 
     // ---------- NEXT GAME ----------
     if (intent === "next_game") {
@@ -168,25 +213,29 @@ ${player.name}
       }
     }
 
-    // ---------- ATTENDANCE CONFIRM ----------
     else if (intent === "attendance_confirm") {
-      const player = await getPlayerByPhone(phone);
-      const game = await getNextGame();
+		const game = await getNextGame();
 
-      if (!player) {
-        reply = "❌ Je bent niet geregistreerd.";
-      } else if (!game) {
-        reply = "❌ Geen match gevonden.";
-      } else {
-        await supabase.from("player_attendance").upsert({
-          player_id: player.id,
-          game_id: game.id,
-          status: "confirmed",
-        });
+		await supabase.from("player_attendance").upsert({
+			player_id: player.id,
+			game_id: game.id,
+			status: "confirmed",
+		});
 
-        reply = "✅ Je bent ingeschreven!";
-      }
-    }
+		reply = "✅ Je bent ingeschreven!";
+	}
+
+	else if (intent === "attendance_decline") {
+		const game = await getNextGame();
+
+		await supabase.from("player_attendance").upsert({
+			player_id: player.id,
+			game_id: game.id,
+			status: "declined",
+		});
+
+		reply = "❌ Je bent afgemeld.";
+	}
 
     // ---------- ATTENDANCE LIST ----------
     else if (intent === "attendance_list") {
