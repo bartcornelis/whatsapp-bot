@@ -155,7 +155,7 @@ export default async function handler(req, res) {
 	);
 
 	// 👉 STOP HIER als geen mention
-	if (!isMentioned && !triggerWords) {
+	if (!isMentioned && !isRelevant) {
 		return res.status(200).send(""); // geen reply
 	}
 
