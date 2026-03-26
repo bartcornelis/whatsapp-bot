@@ -31,6 +31,7 @@ Mogelijke intents:
 - attendance_decline
 - attendance_list
 - top_scorer
+- assists
 - player_stats
 - add_stats
 
@@ -94,6 +95,16 @@ async function getTopScorer() {
   return data?.[0];
 }
 
+async function getTopAssists() {
+  const { data } = await supabase
+    .from("player_leaderboard")
+    .select("*")
+    .order("assists", { ascending: false })
+    .limit(1);
+
+  return data?.[0];
+}
+
 async function getPlayerByPhone(phone) {
   const { data } = await supabase
     .from("players")
@@ -126,6 +137,7 @@ export default async function handler(req, res) {
 	
 	const isMentioned =
 		message.toLowerCase().includes("bot") ||
+		message.toLowerCase().includes("franky") ||
 		message.toLowerCase().includes("coach");
 		
 	const triggerWords = [
@@ -192,6 +204,17 @@ ${game.opponent}
         reply = `🏆 Topscorer:
 ${player.name}
 ⚽ ${player.goals} goals`;
+      }
+    }
+	
+	// ---------- TOP ASSISTS ----------
+    else if (intent === "assists") {
+      const player = await getTopAssists();
+
+      if (player) {
+        reply = `🏆 Topassists:
+${player.name}
+⚽ ${player.assists} assists`;
       }
     }
 

@@ -8,15 +8,21 @@ const supabase = createClient(
 export default async function handler(req, res) {
   try {
     const now = new Date();
-    const tomorrow = new Date();
-    tomorrow.setDate(now.getDate() + 1);
 
-    // 📅 wedstrijden morgen
-    const { data: games } = await supabase
-      .from("games")
-      .select("*")
-      .gte("match_datetime", tomorrow.toISOString().slice(0, 10))
-      .lt("match_datetime", new Date(tomorrow.getTime() + 86400000).toISOString().slice(0, 10));
+	// 🎯 target = binnen 3 dagen
+	const start = new Date();
+	start.setDate(now.getDate() + 3);
+	start.setHours(0, 0, 0, 0);
+
+	const end = new Date(start);
+	end.setHours(23, 59, 59, 999);
+
+	// 📅 wedstrijden exact over 3 dagen
+	const { data: games } = await supabase
+  .from("games")
+  .select("*")
+  .gte("match_datetime", start.toISOString())
+  .lte("match_datetime", end.toISOString());
 
     if (!games || games.length === 0) {
       return res.status(200).send("No games");
